@@ -11,7 +11,7 @@
 #include "platform.h"
 #include "gl.h"
 
-#define NUM_WORKERS 3
+#define NUM_WORKERS 4
 
 static bool s_isContinuousRendering = false;
 

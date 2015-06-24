@@ -3,7 +3,8 @@
 #include <curl/curl.h>
 
 static size_t write_data(void *_buffer, size_t _size, size_t _nmemb, void *_dataPtr) {
-    
+    rmt_ScopedCPUSample(read);
+            
     const size_t realSize = _size * _nmemb;
 
     std::stringstream* stream = (std::stringstream*)_dataPtr;
@@ -15,6 +16,13 @@ static size_t write_data(void *_buffer, size_t _size, size_t _nmemb, void *_data
 
 UrlWorker::UrlWorker() {
     m_curlHandle = curl_easy_init();
+    curl_easy_setopt(m_curlHandle, CURLOPT_WRITEFUNCTION, write_data);
+    curl_easy_setopt(m_curlHandle, CURLOPT_WRITEDATA, &m_stream);
+    curl_easy_setopt(m_curlHandle, CURLOPT_HEADER, 0L);
+    curl_easy_setopt(m_curlHandle, CURLOPT_VERBOSE, 0L);
+    curl_easy_setopt(m_curlHandle, CURLOPT_ACCEPT_ENCODING, "gzip");
+    curl_easy_setopt(m_curlHandle, CURLOPT_TCP_NODELAY, 1);
+    curl_easy_setopt(m_curlHandle, CURLOPT_BUFFERSIZE, 64 * 1024);
 }
 
 UrlWorker::~UrlWorker() {
@@ -28,14 +36,7 @@ void UrlWorker::perform(std::unique_ptr<UrlTask> _task) {
 
     m_future = std::async(std::launch::async, [&]() {
 
-        // set up curl to perform fetch
-        curl_easy_setopt(m_curlHandle, CURLOPT_WRITEFUNCTION, write_data);
-        curl_easy_setopt(m_curlHandle, CURLOPT_WRITEDATA, &m_stream);
         curl_easy_setopt(m_curlHandle, CURLOPT_URL, m_task->url.c_str());
-        curl_easy_setopt(m_curlHandle, CURLOPT_HEADER, 0L);
-        curl_easy_setopt(m_curlHandle, CURLOPT_VERBOSE, 0L);
-        curl_easy_setopt(m_curlHandle, CURLOPT_ACCEPT_ENCODING, "gzip");
-    
         logMsg("Fetching URL with curl: %s\n", m_task->url.c_str());
 
         CURLcode result = curl_easy_perform(m_curlHandle);

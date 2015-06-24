@@ -131,3 +131,6 @@ public:
     const std::string& getName() const { return m_name; }
 
 };
+
+
+typedef std::vector<std::unique_ptr<Style>> Styles;

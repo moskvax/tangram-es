@@ -48,45 +48,72 @@ void TileManager::addToWorkerQueue(std::shared_ptr<TileData>& _parsedData, const
 
     std::lock_guard<std::mutex> lock(m_queueTileMutex);
     m_queuedTiles.emplace_back(std::unique_ptr<TileTask>(new TileTask(_parsedData, _tileID, _source)));
+}
 
+std::unique_ptr<TileTask> TileManager::pollTileTask() {
+    std::lock_guard<std::mutex> lock(m_queueTileMutex);
+    if (m_queuedTiles.empty())
+        return std::unique_ptr<TileTask>();
+
+    auto task = std::move(m_queuedTiles.front());
+    m_queuedTiles.pop_front();
+    
+    return task;
 }
 
 void TileManager::updateTileSet() {
     
     m_tileSetChanged = false;
     
-    // Check if any native worker needs to be dispatched i.e. queuedTiles is not empty
+    // Check if any native worker needs to be dispatched i.e. queuedTiles is not empty.
     {
-        auto workersIter = m_workers.begin();
-        auto queuedTilesIter = m_queuedTiles.begin();
+        for (auto& worker : m_workers) {
+            if (worker->isFree()){
+                auto task = pollTileTask();
+                while (task){
+                    // Check if the tile is still needed.
+                    auto tileIt = m_tileSet.find(task->tileID);
+                    if (tileIt != m_tileSet.end())
+                        break;
+                    
+                    logMsg(">>>>> skipping work for removed tile <<<<<<<\n");
+                    task = pollTileTask();
+                }
+                if (!task)
+                    break;
 
-        while (workersIter != m_workers.end() && queuedTilesIter != m_queuedTiles.end()) {
-
-            auto& worker = *workersIter;
-
-            if (worker->isFree()) {
-                worker->processTileData(std::move(*queuedTilesIter), m_scene->getStyles(), *m_view);
-                queuedTilesIter = m_queuedTiles.erase(queuedTilesIter);
+                worker->processTileData(std::move(task), m_scene->getStyles(), *m_view);
             }
-
-            ++workersIter;
         }
     }
 
-    // Check if any incoming tiles are finished
+    // Check if any incoming tiles are finished.
     for (auto& worker : m_workers) {
         
         if (!worker->isFree() && worker->isFinished()) {
             
-            // Get result from worker and move it into tile set
+            // Get result from worker and move it into tile set.
             auto tile = worker->getTileResult();
             const TileID& id = tile->getID();
             logMsg("Tile [%d, %d, %d] finished loading\n", id.z, id.x, id.y);
-            if (m_tileSet[id])
-                cleanProxyTiles(*m_tileSet[id]);
 
-            std::swap(m_tileSet[id], tile);
-            m_tileSetChanged = true;
+            // Check if the tile is still needed
+            auto tileIt = m_tileSet.find(id);
+            if (tileIt != m_tileSet.end()){
+                auto& phantomTile = (*tileIt).second;
+                
+                cleanProxyTiles(*phantomTile);
+
+                // EEEK: copy counter from 'phantom' tile..
+                for (int i = phantomTile->getProxyCounter(); i > 0; i--)
+                    tile->incProxyCounter();
+
+                std::swap(phantomTile, tile);
+                m_tileSetChanged = true;
+
+            } else {
+                logMsg(">>>>>> got result for removed tile <<<<<<<\n");
+            }
         }
     }
     
@@ -197,21 +224,27 @@ void TileManager::removeTile(std::map< TileID, std::shared_ptr<MapTile> >::itera
     const TileID& id = _tileIter->first;
     MapTile& tile = *_tileIter->second;
 
-    // Make sure to cancel the network request associated with this tile, then if already fetched remove it from the proocessing queue and the worker managing this tile, if applicable
+    // Make sure to cancel the network request associated with this tile,
+    // then if already fetched remove it from the processing queue and
+    // the worker managing this tile, if applicable
     for(auto& dataSource : m_dataSources) {
-        cleanProxyTiles(tile);
+        // FIXME ??? cleanProxyTiles(tile);
         dataSource->cancelLoadingTile(id);
     }
 
-    // Remove tile from queue, if present
-    const auto& found = std::find_if(m_queuedTiles.begin(), m_queuedTiles.end(), 
-                                        [&](std::unique_ptr<TileTask>& p) {
-                                            return (p->tileID == id);
-                                        });
+    {
+        std::lock_guard<std::mutex> lock(m_queueTileMutex);
 
-    if (found != m_queuedTiles.end()) {
-        cleanProxyTiles(tile);
-        m_queuedTiles.erase(found);
+        // Remove tile from queue, if present
+        const auto& found = std::find_if(m_queuedTiles.begin(), m_queuedTiles.end(), 
+                                         [&](std::unique_ptr<TileTask>& p) {
+                                             return (p->tileID == id);
+                                         });
+
+        if (found != m_queuedTiles.end()) {
+            // FIXME ??? cleanProxyTiles(tile);
+            m_queuedTiles.erase(found);
+        }
     }
     
     // If a worker is processing this tile, abort it
@@ -222,6 +255,7 @@ void TileManager::removeTile(std::map< TileID, std::shared_ptr<MapTile> >::itera
         }
     }
 
+    cleanProxyTiles(tile);
     // Remove tile from set
     _tileIter = m_tileSet.erase(_tileIter);
     
