@@ -30,7 +30,6 @@ public:
   
     MapTile(TileID _id, const MapProjection& _projection);
 
-    MapTile(MapTile&& _other); 
 
     virtual ~MapTile();
 
@@ -116,7 +115,8 @@ public:
       None,
       Loading,
       Processing,
-      Ready
+      Ready,
+      Canceled
     };
     
     void setState(State state) {
@@ -129,7 +129,7 @@ public:
 
 private:
 
-    TileID m_id;
+    const TileID m_id;
     
     /*
      * A Counter for number of tiles this tile acts a proxy for
@@ -138,7 +138,7 @@ private:
 
     uint8_t m_proxies = 0;
 
-    State m_state;
+    State m_state = None;
   
     const MapProjection* m_projection = nullptr;
     

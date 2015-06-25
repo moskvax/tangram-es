@@ -133,4 +133,4 @@ public:
 };
 
 
-typedef std::vector<std::unique_ptr<Style>> Styles;
+typedef std::vector<std::unique_ptr<Style>> StyleSet;
