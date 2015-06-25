@@ -1,6 +1,9 @@
 #include "style.h"
 #include "scene/scene.h"
 #include "util/vboMesh.h"
+
+#include "csscolorparser.hpp"
+
 #include <sstream>
 
 Style::Style(std::string _name, GLenum _drawMode) : m_name(_name), m_drawMode(_drawMode) {
@@ -10,7 +13,6 @@ Style::~Style() {
 }
 
 uint32_t Style::parseColorProp(const std::string& _colorPropStr) {
-
     uint32_t color = 0;
 
     if (_colorPropStr.find(',') != std::string::npos) { // try to parse as comma-separated rgba components
@@ -68,7 +70,7 @@ void Style::addLayer(const std::pair<std::string, StyleParamMap>&& _layer) {
 
 }
 
-void Style::addData(TileData& _data, MapTile& _tile, const MapProjection& _mapProjection) {
+void Style::addData(TileData& _data, MapTile& _tile) {
     onBeginBuildTile(_tile);
 
     std::shared_ptr<VboMesh> mesh(newMesh());
